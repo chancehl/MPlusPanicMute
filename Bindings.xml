@@ -1,0 +1,5 @@
+<Bindings>
+  <Binding name="MPLUSPANICMUTE_BINDING_MUTE" header="M+ Panic Mute" description="Ignore everyone in your current 5-player group.">
+    MPlusPanicMute_MuteGroup()
+  </Binding>
+</Bindings>
