@@ -75,8 +75,8 @@ function addon:MuteGroup()
       if C_FriendList.IsIgnored(fullName) then
         table.insert(already, fullName)
       else
-        local ok = C_FriendList.AddIgnore(fullName)
-        if ok then
+        C_FriendList.AddIgnore(fullName)
+        if C_FriendList.IsIgnored(fullName) then
           table.insert(added, fullName)
         else
           table.insert(failed, fullName)
