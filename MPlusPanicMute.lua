@@ -6,6 +6,7 @@ BINDING_HEADER_MPLUSPANICMUTE = "M+ Panic Mute"
 BINDING_NAME_MPLUSPANICMUTE_BINDING_MUTE = "Mute current party"
 
 local playerFullName
+local db
 
 local function formatName(name, realm)
   if not name then
@@ -30,6 +31,109 @@ end
 function addon:GetFullUnitName(unit)
   local name, realm = UnitFullName(unit)
   return formatName(name, realm)
+end
+
+local function normalize(name)
+  return name and string.lower(name) or nil
+end
+
+function addon:EnsureDB()
+  if not MPlusPanicMuteDB then
+    MPlusPanicMuteDB = {}
+  end
+
+  if not MPlusPanicMuteDB.trackedIgnores then
+    MPlusPanicMuteDB.trackedIgnores = {}
+  end
+
+  db = MPlusPanicMuteDB
+end
+
+function addon:TrackIgnored(fullName)
+  if not db then
+    return
+  end
+
+  local key = normalize(fullName)
+  if key then
+    db.trackedIgnores[key] = { name = fullName, addedAt = time() }
+  end
+end
+
+function addon:ForgetTracked(fullName)
+  if not db then
+    return
+  end
+
+  local key = normalize(fullName)
+  if key then
+    db.trackedIgnores[key] = nil
+  end
+end
+
+function addon:GetTrackedNamesSet()
+  local set = {}
+
+  if not db or not db.trackedIgnores then
+    return set
+  end
+
+  for _, info in pairs(db.trackedIgnores) do
+    set[normalize(info.name)] = info.name
+  end
+
+  return set
+end
+
+function addon:GetIgnoreList()
+  local ignores = {}
+  local num = C_FriendList.GetNumIgnores() or 0
+  local getIgnoreName = C_FriendList.GetIgnoreName or GetIgnoreName
+
+  for i = 1, num do
+    local name = getIgnoreName(i)
+    if name then
+      table.insert(ignores, name)
+    end
+  end
+
+  return ignores
+end
+
+function addon:ClearIgnores(opts)
+  local onlyTracked = opts and opts.onlyTracked
+  local names = self:GetIgnoreList()
+
+  if #names == 0 then
+    self:Print("Ignore list is already empty.")
+    return
+  end
+
+  local tracked = self:GetTrackedNamesSet()
+  local removed, skipped = {}, {}
+
+  for _, name in ipairs(names) do
+    local norm = normalize(name)
+    if not onlyTracked or tracked[norm] then
+      C_FriendList.DelIgnore(name)
+      self:ForgetTracked(name)
+      table.insert(removed, name)
+    else
+      table.insert(skipped, name)
+    end
+  end
+
+  if #removed == 0 then
+    self:Print(onlyTracked and "No tracked ignores to clear." or "Unable to clear ignores.")
+    return
+  end
+
+  local parts = { string.format("Cleared %d ignore(s).", #removed) }
+  if onlyTracked and #skipped > 0 then
+    table.insert(parts, string.format("Skipped %d untracked.", #skipped))
+  end
+
+  self:Print(table.concat(parts, " "))
 end
 
 function addon:CollectGroupUnits()
@@ -78,6 +182,7 @@ function addon:MuteGroup()
         C_FriendList.AddIgnore(fullName)
         if C_FriendList.IsIgnored(fullName) then
           table.insert(added, fullName)
+          self:TrackIgnored(fullName)
         else
           table.insert(failed, fullName)
         end
@@ -110,7 +215,7 @@ function addon:BuildFrame()
   end
 
   local f = CreateFrame("Frame", "MPlusPanicMuteFrame", UIParent, "BasicFrameTemplateWithInset")
-  f:SetSize(240, 110)
+  f:SetSize(260, 180)
   f:SetPoint("CENTER")
   f:Hide()
 
@@ -119,16 +224,32 @@ function addon:BuildFrame()
   f.title:SetText("M+ Panic Mute")
 
   local button = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  button:SetSize(170, 26)
+  button:SetSize(190, 26)
   button:SetPoint("TOP", f, "TOP", 0, -36)
   button:SetText("Mute current group")
   button:SetScript("OnClick", function()
     addon:MuteGroup()
   end)
 
+  local clearTrackedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  clearTrackedBtn:SetSize(190, 22)
+  clearTrackedBtn:SetPoint("TOP", button, "BOTTOM", 0, -10)
+  clearTrackedBtn:SetText("Clear addon ignores")
+  clearTrackedBtn:SetScript("OnClick", function()
+    addon:ClearIgnores({ onlyTracked = true })
+  end)
+
+  local clearAllBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  clearAllBtn:SetSize(190, 22)
+  clearAllBtn:SetPoint("TOP", clearTrackedBtn, "BOTTOM", 0, -6)
+  clearAllBtn:SetText("Clear all ignores")
+  clearAllBtn:SetScript("OnClick", function()
+    addon:ClearIgnores({ onlyTracked = false })
+  end)
+
   local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  label:SetPoint("TOP", button, "BOTTOM", 0, -8)
-  label:SetText("Click or bind a key to ignore your party.\nSlash: /mplusmute")
+  label:SetPoint("TOP", clearAllBtn, "BOTTOM", 0, -10)
+  label:SetText("Keybind: AddOns → M+ Panic Mute\nSlash: /mplusmute | Clear tracked: /mplusclear")
 
   f:SetMovable(true)
   f:EnableMouse(true)
@@ -158,6 +279,12 @@ SlashCmdList.MPLUSMUTE = function()
   addon:ToggleFrame()
 end
 
+-- Slash command to clear only tracked ignores.
+SLASH_MPLUSCLEARMUTE1 = "/mplusclear"
+SlashCmdList.MPLUSCLEARMUTE = function()
+  addon:ClearIgnores({ onlyTracked = true })
+end
+
 -- Global function used by the keybinding.
 function MPlusPanicMute_MuteGroup()
   addon:MuteGroup()
@@ -167,6 +294,7 @@ end
 local loginFrame = CreateFrame("Frame")
 loginFrame:RegisterEvent("PLAYER_LOGIN")
 loginFrame:SetScript("OnEvent", function()
+  addon:EnsureDB()
   playerFullName = addon:GetFullUnitName("player")
   addon:BuildFrame()
 end)
