@@ -13,5 +13,5 @@ Press a single button or keybind to ignore everyone else in your current Mythic+
 - Slash `/mplusclear` or click “Clear addon ignores” to remove only the names the addon added. “Clear all ignores” wipes the entire ignore list.
 
 ## Notes
-- Works in 5-player groups; it will iterate raid units too, but it’s intended for Mythic+ parties.
+- Mute button is enabled only for 5-player parties (Mythic+); raids and solo won’t activate it.
 - Requires being in a group; otherwise it just prints a notice.
