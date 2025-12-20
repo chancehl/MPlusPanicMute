@@ -7,6 +7,7 @@ BINDING_NAME_MPLUSPANICMUTE_BINDING_MUTE = "Mute current party"
 
 local playerFullName
 local db
+local muteButton
 
 local function formatName(name, realm)
   if not name then
@@ -136,6 +137,32 @@ function addon:ClearIgnores(opts)
   self:Print(table.concat(parts, " "))
 end
 
+function addon:IsEligibleMythicParty()
+  if not IsInGroup() or IsInRaid() then
+    return false
+  end
+
+  local num = GetNumGroupMembers() or 0
+  return num > 1 and num <= 5
+end
+
+function addon:UpdateMuteButtonState()
+  if not muteButton then
+    return
+  end
+
+  local enabled = self:IsEligibleMythicParty()
+  muteButton:SetEnabled(enabled)
+
+  if enabled then
+    muteButton:EnableMouse(true)
+    muteButton:SetAlpha(1)
+  else
+    muteButton:EnableMouse(false)
+    muteButton:SetAlpha(0.5)
+  end
+end
+
 function addon:CollectGroupUnits()
   local units = {}
 
@@ -161,6 +188,11 @@ end
 function addon:MuteGroup()
   if not IsInGroup() then
     self:Print("You are not in a party. Nothing to mute.")
+    return
+  end
+
+  if not self:IsEligibleMythicParty() then
+    self:Print("Mute is limited to 5-player (Mythic+) parties.")
     return
   end
 
@@ -230,6 +262,7 @@ function addon:BuildFrame()
   button:SetScript("OnClick", function()
     addon:MuteGroup()
   end)
+  muteButton = button
 
   local clearTrackedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   clearTrackedBtn:SetSize(190, 22)
@@ -258,6 +291,7 @@ function addon:BuildFrame()
   f:SetScript("OnDragStop", f.StopMovingOrSizing)
 
   self.frame = f
+  self:UpdateMuteButtonState()
 end
 
 function addon:ToggleFrame()
@@ -269,8 +303,26 @@ function addon:ToggleFrame()
     self.frame:Hide()
   else
     self.frame:Show()
+    self:UpdateMuteButtonState()
   end
 end
+
+-- Global function used by the keybinding.
+function MPlusPanicMute_MuteGroup()
+  addon:MuteGroup()
+end
+
+-- Initialize player name on login to avoid nils before the player is fully loaded.
+local loginFrame = CreateFrame("Frame")
+loginFrame:RegisterEvent("PLAYER_LOGIN")
+loginFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+loginFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+loginFrame:SetScript("OnEvent", function()
+  addon:EnsureDB()
+  playerFullName = addon:GetFullUnitName("player")
+  addon:BuildFrame()
+  addon:UpdateMuteButtonState()
+end)
 
 -- Slash commands to show the panic button frame.
 SLASH_MPLUSMUTE1 = "/mplusmute"
@@ -284,17 +336,3 @@ SLASH_MPLUSCLEARMUTE1 = "/mplusclear"
 SlashCmdList.MPLUSCLEARMUTE = function()
   addon:ClearIgnores({ onlyTracked = true })
 end
-
--- Global function used by the keybinding.
-function MPlusPanicMute_MuteGroup()
-  addon:MuteGroup()
-end
-
--- Initialize player name on login to avoid nils before the player is fully loaded.
-local loginFrame = CreateFrame("Frame")
-loginFrame:RegisterEvent("PLAYER_LOGIN")
-loginFrame:SetScript("OnEvent", function()
-  addon:EnsureDB()
-  playerFullName = addon:GetFullUnitName("player")
-  addon:BuildFrame()
-end)
