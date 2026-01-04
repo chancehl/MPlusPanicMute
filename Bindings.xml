@@ -1,8 +1,8 @@
 <Bindings>
-  <Binding name="MPLUSPANICMUTE_BINDING_MUTE" header="MPLUSPANICMUTE" description="Ignore everyone in your current 5-player group.">
+  <Binding category="BINDING_HEADER_MPLUSPANICMUTE" name="BINDING_NAME_MPLUSPANICMUTE_BINDING_MUTE" description="Ignore everyone in your current 5-player group.">
     MPlusPanicMute_MuteGroup()
   </Binding>
-  <Binding name="MPLUSPANICMUTE_BINDING_CLEARPARTY" description="Clear tracked ignores for current party members.">
+  <Binding category="BINDING_HEADER_MPLUSPANICMUTE" name="BINDING_NAME_MPLUSPANICMUTE_BINDING_CLEARPARTY" description="Clear tracked ignores for current party members.">
     MPlusPanicMute_ClearPartyMutes()
   </Binding>
 </Bindings>
