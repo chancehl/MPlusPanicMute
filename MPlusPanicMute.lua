@@ -2,8 +2,9 @@ local addonName = ...
 local addon = {}
 
 -- Binding labels (shown in the in-game keybinds menu).
-BINDING_HEADER_MPLUSPANICMUTE = "M+ Panic Mute"
+BINDING_HEADER_MPLUSPANICMUTE = "MPlusPanicMute"
 BINDING_NAME_MPLUSPANICMUTE_BINDING_MUTE = "Mute current party"
+BINDING_NAME_MPLUSPANICMUTE_BINDING_CLEARPARTY = "Clear party mutes"
 
 local playerFullName
 local db
@@ -137,6 +138,46 @@ function addon:ClearIgnores(opts)
   self:Print(table.concat(parts, " "))
 end
 
+function addon:ClearPartyIgnores()
+  if not IsInGroup() or IsInRaid() then
+    self:Print("You are not in a party. Nothing to clear.")
+    return
+  end
+
+  local units = self:CollectGroupUnits()
+  if #units == 0 then
+    self:Print("No party members found to clear.")
+    return
+  end
+
+  local partySet = {}
+  for _, unit in ipairs(units) do
+    local fullName = self:GetFullUnitName(unit)
+    if fullName then
+      partySet[normalize(fullName)] = true
+    end
+  end
+
+  local tracked = self:GetTrackedNamesSet()
+  local removed = {}
+
+  for _, name in ipairs(self:GetIgnoreList()) do
+    local norm = normalize(name)
+    if partySet[norm] and tracked[norm] then
+      C_FriendList.DelIgnore(name)
+      self:ForgetTracked(name)
+      table.insert(removed, name)
+    end
+  end
+
+  if #removed == 0 then
+    self:Print("No tracked party ignores to clear.")
+    return
+  end
+
+  self:Print(string.format("Cleared %d party ignore(s).", #removed))
+end
+
 function addon:IsEligibleMythicParty()
   if not IsInGroup() or IsInRaid() then
     return false
@@ -202,7 +243,7 @@ function addon:MuteGroup()
     return
   end
 
-  local added, already, failed = {}, {}, {}
+  local added, already, failed, requested = {}, {}, {}, {}
 
   for _, unit in ipairs(units) do
     local fullName = self:GetFullUnitName(unit)
@@ -212,33 +253,45 @@ function addon:MuteGroup()
         table.insert(already, fullName)
       else
         C_FriendList.AddIgnore(fullName)
-        if C_FriendList.IsIgnored(fullName) then
-          table.insert(added, fullName)
-          self:TrackIgnored(fullName)
-        else
-          table.insert(failed, fullName)
-        end
+        table.insert(requested, fullName)
       end
     end
   end
 
-  if #added == 0 and #already == 0 and #failed == 0 then
-    self:Print("No one else is in your party to mute.")
-    return
+  local function report()
+    for _, fullName in ipairs(requested) do
+      if C_FriendList.IsIgnored(fullName) then
+        table.insert(added, fullName)
+        self:TrackIgnored(fullName)
+      else
+        table.insert(failed, fullName)
+      end
+    end
+
+    if #added == 0 and #already == 0 and #failed == 0 then
+      self:Print("No one else is in your party to mute.")
+      return
+    end
+
+    local parts = {}
+    if #added > 0 then
+      table.insert(parts, string.format("Muted: %s", table.concat(added, ", ")))
+    end
+    if #already > 0 then
+      table.insert(parts, string.format("Already ignored: %s", table.concat(already, ", ")))
+    end
+    if #failed > 0 then
+      table.insert(parts, string.format("Failed: %s", table.concat(failed, ", ")))
+    end
+
+    self:Print(table.concat(parts, " | "))
   end
 
-  local parts = {}
-  if #added > 0 then
-    table.insert(parts, string.format("Muted: %s", table.concat(added, ", ")))
+  if #requested > 0 then
+    C_Timer.After(0.1, report)
+  else
+    report()
   end
-  if #already > 0 then
-    table.insert(parts, string.format("Already ignored: %s", table.concat(already, ", ")))
-  end
-  if #failed > 0 then
-    table.insert(parts, string.format("Failed: %s", table.concat(failed, ", ")))
-  end
-
-  self:Print(table.concat(parts, " | "))
 end
 
 function addon:BuildFrame()
@@ -282,7 +335,7 @@ function addon:BuildFrame()
 
   local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   label:SetPoint("TOP", clearAllBtn, "BOTTOM", 0, -10)
-  label:SetText("Keybind: AddOns → M+ Panic Mute\nSlash: /mplusmute | Clear tracked: /mplusclear")
+  label:SetText("Keybind: AddOns → MPlusPanicMute\nSlash: /mplusmute | Clear tracked: /mplusclear")
 
   f:SetMovable(true)
   f:EnableMouse(true)
@@ -310,6 +363,11 @@ end
 -- Global function used by the keybinding.
 function MPlusPanicMute_MuteGroup()
   addon:MuteGroup()
+end
+
+-- Global function used by the keybinding.
+function MPlusPanicMute_ClearPartyMutes()
+  addon:ClearPartyIgnores()
 end
 
 -- Initialize player name on login to avoid nils before the player is fully loaded.

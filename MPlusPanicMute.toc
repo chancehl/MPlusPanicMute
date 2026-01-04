@@ -1,4 +1,4 @@
-## Interface: 100207
+## Interface: 110205, 110207, 120000
 ## Title: M+ Panic Mute
 ## Notes: Press a button or keybind to ignore everyone in your current 5-player party.
 ## Author: chancehl
@@ -6,6 +6,7 @@
 ## DefaultState: Enabled
 ## LoadOnDemand: 0
 ## Bindings: Bindings.xml
+## IconTexture: MPlusPanicMute_Icon
 ## SavedVariables: MPlusPanicMuteDB
 
 MPlusPanicMute.lua
