@@ -2,9 +2,7 @@ local addonName = ...
 local addon = {}
 
 -- Binding labels (shown in the in-game keybinds menu).
-BINDING_HEADER_MPLUSPANICMUTE = "MPlusPanicMute"
-BINDING_NAME_MPLUSPANICMUTE_BINDING_MUTE = "Mute current party"
-BINDING_NAME_MPLUSPANICMUTE_BINDING_CLEARPARTY = "Clear party mutes"
+BINDING_HEADER_MPLUSPANICMUTE = "M+ Panic Mute"
 
 local playerFullName
 local db
