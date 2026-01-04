@@ -7,6 +7,8 @@ BINDING_HEADER_MPLUSPANICMUTE = "M+ Panic Mute"
 local playerFullName
 local db
 local muteButton
+local pendingMute
+local pendingMuteId = 0
 
 local function formatName(name, realm)
   if not name then
@@ -283,6 +285,50 @@ function addon:CollectGroupUnits()
   return units
 end
 
+function addon:ReportMuteResults(requested, already)
+  local ignoreSet = self:BuildIgnoreSet()
+  local added, failed = {}, {}
+
+  for _, fullName in ipairs(requested) do
+    if self:IsIgnoredName(fullName, ignoreSet) then
+      table.insert(added, fullName)
+      self:TrackIgnored(fullName)
+    else
+      table.insert(failed, fullName)
+    end
+  end
+
+  if #added == 0 and #already == 0 and #failed == 0 then
+    self:Print("No one else is in your party to mute.")
+    return
+  end
+
+  local parts = {}
+  if #added > 0 then
+    table.insert(parts, string.format("Muted: %s", table.concat(added, ", ")))
+  end
+  if #already > 0 then
+    table.insert(parts, string.format("Already ignored: %s", table.concat(already, ", ")))
+  end
+  if #failed > 0 then
+    table.insert(parts, string.format("Failed: %s", table.concat(failed, ", ")))
+  end
+
+  self:Print(table.concat(parts, " | "))
+end
+
+function addon:FlushMuteReport()
+  if not pendingMute then
+    return
+  end
+
+  local requested = pendingMute.requested or {}
+  local already = pendingMute.already or {}
+  pendingMute = nil
+
+  self:ReportMuteResults(requested, already)
+end
+
 function addon:MuteGroup()
   if not IsInGroup() then
     self:Print("You are not in a party. Nothing to mute.")
@@ -300,7 +346,7 @@ function addon:MuteGroup()
     return
   end
 
-  local added, already, failed, requested = {}, {}, {}, {}
+  local already, requested = {}, {}
   local ignoreSet = self:BuildIgnoreSet()
 
   for _, unit in ipairs(units) do
@@ -316,40 +362,17 @@ function addon:MuteGroup()
     end
   end
 
-  local function report()
-    ignoreSet = self:BuildIgnoreSet()
-    for _, fullName in ipairs(requested) do
-      if self:IsIgnoredName(fullName, ignoreSet) then
-        table.insert(added, fullName)
-        self:TrackIgnored(fullName)
-      else
-        table.insert(failed, fullName)
-      end
-    end
-
-    if #added == 0 and #already == 0 and #failed == 0 then
-      self:Print("No one else is in your party to mute.")
-      return
-    end
-
-    local parts = {}
-    if #added > 0 then
-      table.insert(parts, string.format("Muted: %s", table.concat(added, ", ")))
-    end
-    if #already > 0 then
-      table.insert(parts, string.format("Already ignored: %s", table.concat(already, ", ")))
-    end
-    if #failed > 0 then
-      table.insert(parts, string.format("Failed: %s", table.concat(failed, ", ")))
-    end
-
-    self:Print(table.concat(parts, " | "))
-  end
-
   if #requested > 0 then
-    C_Timer.After(0.1, report)
+    pendingMuteId = pendingMuteId + 1
+    local currentId = pendingMuteId
+    pendingMute = { id = currentId, requested = requested, already = already }
+    C_Timer.After(1.0, function()
+      if pendingMute and pendingMute.id == currentId then
+        addon:FlushMuteReport()
+      end
+    end)
   else
-    report()
+    self:ReportMuteResults(requested, already)
   end
 end
 
@@ -434,7 +457,15 @@ local loginFrame = CreateFrame("Frame")
 loginFrame:RegisterEvent("PLAYER_LOGIN")
 loginFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 loginFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-loginFrame:SetScript("OnEvent", function()
+loginFrame:RegisterEvent("FRIENDLIST_UPDATE")
+loginFrame:SetScript("OnEvent", function(_, event)
+  if event == "FRIENDLIST_UPDATE" then
+    if pendingMute then
+      addon:FlushMuteReport()
+    end
+    return
+  end
+
   addon:EnsureDB()
   playerFullName = addon:GetFullUnitName("player")
   addon:BuildFrame()
