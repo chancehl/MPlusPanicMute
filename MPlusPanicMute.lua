@@ -39,6 +39,10 @@ local function normalize(name)
   return name and string.lower(name) or nil
 end
 
+local function shortName(fullName)
+  return fullName and fullName:match("^[^-]+") or nil
+end
+
 function addon:EnsureDB()
   if not MPlusPanicMuteDB then
     MPlusPanicMuteDB = {}
@@ -60,6 +64,11 @@ function addon:TrackIgnored(fullName)
   if key then
     db.trackedIgnores[key] = { name = fullName, addedAt = time() }
   end
+
+  local short = normalize(shortName(fullName))
+  if short and short ~= key then
+    db.trackedIgnores[short] = { name = fullName, addedAt = time() }
+  end
 end
 
 function addon:ForgetTracked(fullName)
@@ -71,6 +80,11 @@ function addon:ForgetTracked(fullName)
   if key then
     db.trackedIgnores[key] = nil
   end
+
+  local short = normalize(shortName(fullName))
+  if short then
+    db.trackedIgnores[short] = nil
+  end
 end
 
 function addon:GetTrackedNamesSet()
@@ -81,10 +95,47 @@ function addon:GetTrackedNamesSet()
   end
 
   for _, info in pairs(db.trackedIgnores) do
-    set[normalize(info.name)] = info.name
+    local norm = normalize(info.name)
+    if norm then
+      set[norm] = info.name
+    end
+
+    local short = normalize(shortName(info.name))
+    if short then
+      set[short] = info.name
+    end
   end
 
   return set
+end
+
+function addon:BuildIgnoreSet()
+  local set = {}
+  for _, name in ipairs(self:GetIgnoreList()) do
+    local norm = normalize(name)
+    if norm then
+      set[norm] = name
+    end
+
+    local short = normalize(shortName(name))
+    if short then
+      set[short] = name
+    end
+  end
+
+  return set
+end
+
+function addon:IsIgnoredName(fullName, ignoreSet)
+  if not fullName then
+    return false
+  end
+
+  local norm = normalize(fullName)
+  local short = normalize(shortName(fullName))
+  ignoreSet = ignoreSet or self:BuildIgnoreSet()
+
+  return (norm and ignoreSet[norm]) or (short and ignoreSet[short]) or false
 end
 
 function addon:GetIgnoreList()
@@ -154,7 +205,15 @@ function addon:ClearPartyIgnores()
   for _, unit in ipairs(units) do
     local fullName = self:GetFullUnitName(unit)
     if fullName then
-      partySet[normalize(fullName)] = true
+      local norm = normalize(fullName)
+      if norm then
+        partySet[norm] = true
+      end
+
+      local short = normalize(shortName(fullName))
+      if short then
+        partySet[short] = true
+      end
     end
   end
 
@@ -244,12 +303,13 @@ function addon:MuteGroup()
   end
 
   local added, already, failed, requested = {}, {}, {}, {}
+  local ignoreSet = self:BuildIgnoreSet()
 
   for _, unit in ipairs(units) do
     local fullName = self:GetFullUnitName(unit)
 
     if fullName and fullName ~= playerFullName then
-      if C_FriendList.IsIgnored(fullName) then
+      if self:IsIgnoredName(fullName, ignoreSet) then
         table.insert(already, fullName)
       else
         C_FriendList.AddIgnore(fullName)
@@ -259,8 +319,9 @@ function addon:MuteGroup()
   end
 
   local function report()
+    ignoreSet = self:BuildIgnoreSet()
     for _, fullName in ipairs(requested) do
-      if C_FriendList.IsIgnored(fullName) then
+      if self:IsIgnoredName(fullName, ignoreSet) then
         table.insert(added, fullName)
         self:TrackIgnored(fullName)
       else
