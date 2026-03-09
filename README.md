@@ -4,7 +4,7 @@ Press a single button or keybind to ignore everyone else in your current Mythic+
 
 ## Install
 - Copy the `MPlusPanicMute` folder into `_retail_/Interface/AddOns/`.
-- Make sure `## Interface` in `MPlusPanicMute.toc` matches your client build (currently `100207`).
+- Make sure `## Interface` in `MPlusPanicMute.toc` includes your client build. Current Retail Midnight is `120001`; this addon also keeps older Retail interface values for compatibility.
 
 ## Use
 - In-game, bind a key: `Esc` → `Key Bindings` → `AddOns` → `M+ Panic Mute` → set `Mute current party`.
