@@ -64,11 +64,6 @@ function addon:TrackIgnored(fullName)
   if key then
     db.trackedIgnores[key] = { name = fullName, addedAt = time() }
   end
-
-  local short = normalize(shortName(fullName))
-  if short and short ~= key then
-    db.trackedIgnores[short] = { name = fullName, addedAt = time() }
-  end
 end
 
 function addon:ForgetTracked(fullName)
@@ -76,14 +71,25 @@ function addon:ForgetTracked(fullName)
     return
   end
 
+  -- Try exact full-name key first.
   local key = normalize(fullName)
-  if key then
+  if key and db.trackedIgnores[key] then
     db.trackedIgnores[key] = nil
+    return
   end
 
+  -- The ignore list may return "Name" without a realm suffix for same-realm
+  -- players. Fall back to matching stored entries by short name.
   local short = normalize(shortName(fullName))
-  if short then
-    db.trackedIgnores[short] = nil
+  if not short then
+    return
+  end
+
+  for k, info in pairs(db.trackedIgnores) do
+    if normalize(shortName(info.name)) == short then
+      db.trackedIgnores[k] = nil
+      return
+    end
   end
 end
 
@@ -352,17 +358,37 @@ function addon:MuteGroup()
   for _, unit in ipairs(units) do
     local fullName = self:GetFullUnitName(unit)
 
-    if fullName and fullName ~= playerFullName then
+    -- Use UnitIsUnit to guard against a nil or stale playerFullName.
+    if fullName and not UnitIsUnit(unit, "player") then
       if self:IsIgnoredName(fullName, ignoreSet) then
         table.insert(already, fullName)
       else
-        C_FriendList.AddIgnore(fullName)
         table.insert(requested, fullName)
       end
     end
   end
 
   if #requested > 0 then
+    local MAX_IGNORES = 50
+    local currentCount = C_FriendList.GetNumIgnores() or 0
+    local slotsAvailable = MAX_IGNORES - currentCount
+
+    if slotsAvailable <= 0 then
+      self:Print(string.format("Ignore list is full (%d/%d). Cannot mute party.", currentCount, MAX_IGNORES))
+      return
+    end
+
+    if #requested > slotsAvailable then
+      self:Print(string.format("Ignore list almost full (%d/%d slots used). Only %d of %d can be muted.", currentCount, MAX_IGNORES, slotsAvailable, #requested))
+      while #requested > slotsAvailable do
+        table.remove(requested)
+      end
+    end
+
+    for _, fullName in ipairs(requested) do
+      C_FriendList.AddIgnore(fullName)
+    end
+
     pendingMuteId = pendingMuteId + 1
     local currentId = pendingMuteId
     pendingMute = { id = currentId, requested = requested, already = already }
@@ -417,7 +443,7 @@ function addon:BuildFrame()
 
   local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   label:SetPoint("TOP", clearAllBtn, "BOTTOM", 0, -10)
-  label:SetText("Keybind: AddOns → MPlusPanicMute\nSlash: /mplusmute | Clear tracked: /mplusclear")
+  label:SetText("Slash: /mplusmute · /mplusclear (clears all tracked)\nKeybind: AddOns → M+ Panic Mute\n\"Clear party mutes\" keybind: current party only")
 
   f:SetMovable(true)
   f:EnableMouse(true)
@@ -461,7 +487,20 @@ loginFrame:RegisterEvent("FRIENDLIST_UPDATE")
 loginFrame:SetScript("OnEvent", function(_, event)
   if event == "FRIENDLIST_UPDATE" then
     if pendingMute then
-      addon:FlushMuteReport()
+      -- Only flush once every requested ignore has been confirmed. FRIENDLIST_UPDATE
+      -- fires once per operation (and for unrelated social events), so flushing on
+      -- the first fire would misreport the remaining ignores as failed.
+      local ignoreSet = addon:BuildIgnoreSet()
+      local allConfirmed = true
+      for _, name in ipairs(pendingMute.requested) do
+        if not addon:IsIgnoredName(name, ignoreSet) then
+          allConfirmed = false
+          break
+        end
+      end
+      if allConfirmed then
+        addon:FlushMuteReport()
+      end
     end
     return
   end
