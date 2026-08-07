@@ -1,4 +1,4 @@
-local addonName = ...
+local addonName, ns = ...
 local addon = {}
 
 -- Binding labels (shown in the in-game keybinds menu).
@@ -43,6 +43,25 @@ local function shortName(fullName)
   return fullName and fullName:match("^[^-]+") or nil
 end
 
+-- Reduce a name to one comparable "name-realm" spelling.
+--
+-- The two sources disagree about how to spell the same player: unit APIs
+-- always give a realm, while the ignore list drops it for same-realm players,
+-- so ignoring "Bob-Illidan" reads back as plain "Bob". Filling the player's
+-- own realm in for a bare name makes both spellings meet in the middle.
+--
+-- Matching on the bare name instead would also collapse distinct players --
+-- an ignored "Bob-Area52" would make "Bob-Stormrage" look ignored, and that
+-- party member would silently escape being muted.
+local function canonicalName(name)
+  if not name then
+    return nil
+  end
+
+  local realm = name:match("^[^-]+-(.+)$")
+  return normalize(formatName(shortName(name), realm))
+end
+
 function addon:EnsureDB()
   if not MPlusPanicMuteDB then
     MPlusPanicMuteDB = {}
@@ -60,7 +79,7 @@ function addon:TrackIgnored(fullName)
     return
   end
 
-  local key = normalize(fullName)
+  local key = canonicalName(fullName)
   if key then
     db.trackedIgnores[key] = { name = fullName, addedAt = time() }
   end
@@ -71,22 +90,22 @@ function addon:ForgetTracked(fullName)
     return
   end
 
-  -- Try exact full-name key first.
-  local key = normalize(fullName)
-  if key and db.trackedIgnores[key] then
+  -- canonicalName absorbs the ignore list's bare same-realm spelling, so one
+  -- lookup covers both "Bob" and "Bob-Illidan".
+  local key = canonicalName(fullName)
+  if not key then
+    return
+  end
+
+  if db.trackedIgnores[key] then
     db.trackedIgnores[key] = nil
     return
   end
 
-  -- The ignore list may return "Name" without a realm suffix for same-realm
-  -- players. Fall back to matching stored entries by short name.
-  local short = normalize(shortName(fullName))
-  if not short then
-    return
-  end
-
+  -- Entries saved by an older version may be keyed differently; fall back to
+  -- comparing the stored names themselves.
   for k, info in pairs(db.trackedIgnores) do
-    if normalize(shortName(info.name)) == short then
+    if canonicalName(info.name) == key then
       db.trackedIgnores[k] = nil
       return
     end
@@ -101,14 +120,9 @@ function addon:GetTrackedNamesSet()
   end
 
   for _, info in pairs(db.trackedIgnores) do
-    local norm = normalize(info.name)
-    if norm then
-      set[norm] = info.name
-    end
-
-    local short = normalize(shortName(info.name))
-    if short then
-      set[short] = info.name
+    local key = canonicalName(info.name)
+    if key then
+      set[key] = info.name
     end
   end
 
@@ -118,14 +132,9 @@ end
 function addon:BuildIgnoreSet()
   local set = {}
   for _, name in ipairs(self:GetIgnoreList()) do
-    local norm = normalize(name)
-    if norm then
-      set[norm] = name
-    end
-
-    local short = normalize(shortName(name))
-    if short then
-      set[short] = name
+    local key = canonicalName(name)
+    if key then
+      set[key] = name
     end
   end
 
@@ -133,15 +142,14 @@ function addon:BuildIgnoreSet()
 end
 
 function addon:IsIgnoredName(fullName, ignoreSet)
-  if not fullName then
+  local key = canonicalName(fullName)
+  if not key then
     return false
   end
 
-  local norm = normalize(fullName)
-  local short = normalize(shortName(fullName))
   ignoreSet = ignoreSet or self:BuildIgnoreSet()
 
-  return (norm and ignoreSet[norm]) or (short and ignoreSet[short]) or false
+  return ignoreSet[key] or false
 end
 
 function addon:GetIgnoreList()
@@ -172,8 +180,8 @@ function addon:ClearIgnores(opts)
   local removed, skipped = {}, {}
 
   for _, name in ipairs(names) do
-    local norm = normalize(name)
-    if not onlyTracked or tracked[norm] then
+    local key = canonicalName(name)
+    if not onlyTracked or (key and tracked[key]) then
       C_FriendList.DelIgnore(name)
       self:ForgetTracked(name)
       table.insert(removed, name)
@@ -209,17 +217,9 @@ function addon:ClearPartyIgnores()
 
   local partySet = {}
   for _, unit in ipairs(units) do
-    local fullName = self:GetFullUnitName(unit)
-    if fullName then
-      local norm = normalize(fullName)
-      if norm then
-        partySet[norm] = true
-      end
-
-      local short = normalize(shortName(fullName))
-      if short then
-        partySet[short] = true
-      end
+    local key = canonicalName(self:GetFullUnitName(unit))
+    if key then
+      partySet[key] = true
     end
   end
 
@@ -227,8 +227,8 @@ function addon:ClearPartyIgnores()
   local removed = {}
 
   for _, name in ipairs(self:GetIgnoreList()) do
-    local norm = normalize(name)
-    if partySet[norm] and tracked[norm] then
+    local key = canonicalName(name)
+    if key and partySet[key] and tracked[key] then
       C_FriendList.DelIgnore(name)
       self:ForgetTracked(name)
       table.insert(removed, name)
@@ -522,4 +522,17 @@ end
 SLASH_MPLUSCLEARMUTE1 = "/mplusclear"
 SlashCmdList.MPLUSCLEARMUTE = function()
   addon:ClearIgnores({ onlyTracked = true })
+end
+
+-- Expose internals to the test suite in spec/. The client passes a private
+-- table as the second vararg that only this addon's files can see, so nothing
+-- here leaks into the global namespace in-game.
+if ns then
+  ns.addon = addon
+  ns.internals = {
+    formatName = formatName,
+    normalize = normalize,
+    shortName = shortName,
+    canonicalName = canonicalName,
+  }
 end

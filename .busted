@@ -1,0 +1,10 @@
+-- Busted configuration. Run from the repo root so that the relative
+-- loadfile("MPlusPanicMute.lua") in spec/spec_helper.lua resolves.
+return {
+  default = {
+    ROOT = { "spec" },
+    pattern = "_spec%.lua$",
+    lpath = "./?.lua;./?/init.lua",
+    output = "utfTerminal",
+  },
+}
